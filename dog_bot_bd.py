@@ -2,6 +2,7 @@
 
 import pandas as pd
 import psycopg
+import csv
 
 import config
 
@@ -26,7 +27,7 @@ def __tg_create_table():
     ) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"CREATE OR REPLACE TABLE {config.TG_TABLE} "
+                f"CREATE TABLE {config.TG_TABLE} "
                 "(date_get_dog timestamp with time zone DEFAULT now(), "
                 "user_telegram_id BIGINT, user_name VARCHAR(300));"
             )
@@ -51,7 +52,7 @@ def __vk_create_table():
     ) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"CREATE OR REPLACE TABLE {config.VK_TABLE} "
+                f"CREATE TABLE {config.VK_TABLE} "
                 "(date_get_dog timestamp with time zone DEFAULT now(), "
                 "user_vk_id BIGINT, user_name VARCHAR(300));"
             )
@@ -110,7 +111,25 @@ def tg_add_record(user_telegram_id, name):
             conn.commit()
 
 
-def tg_records_to_csv():
+def get_table_columns(table: str) -> list:
+    """По названию таблицы возвращает заголовки этой таблицы в виде списка."""
+    with psycopg.connect(
+        dbname=config.DB_NAME,
+        user=config.DB_USER,
+        password=config.DB_PASSWORD,
+        host=config.DB_HOST,
+    ) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+            f"""SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+            AND table_name = '{table}';""")
+            data = [x[0] for x in cur.fetchall()]
+        return data
+
+
+def records_to_csv(table: str):
     """
     Выгружает все данные из базы данных в CSV-файл.
 
@@ -124,9 +143,36 @@ def tg_records_to_csv():
         host=config.DB_HOST,
     ) as conn:
         with conn.cursor() as cur:
-            cur.execute(f"SELECT * FROM {config.TG_TABLE}")
+            cur.execute(f"SELECT * FROM {table}")
             data = cur.fetchall()
             df = pd.DataFrame(
-                data, columns=["date_record", "user_telegram_id", "user_name"]
+                data, columns=get_table_columns(table)
             )
-            df.to_csv(f"{config.TG_TABLE}.csv", index=False)
+            df.to_csv(f"{table}.csv", index=False)
+        print("Данные сохранены в файл.", f"{table}.csv")
+
+
+def read_csv_and_put_bd(table: str):
+    """Читает данные из csv файла и загружает данные в таблицу."""
+    headers = get_table_columns(table)
+
+    with psycopg.connect(
+        dbname=config.DB_NAME,
+        user=config.DB_USER,
+        password=config.DB_PASSWORD,
+        host=config.DB_HOST,
+    ) as conn:
+        with open (f"{table}.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            with conn.cursor() as cur:
+                for row in reader:
+                    cur.execute(
+                        f"INSERT INTO {table} ({','.join(headers)}) "
+                        "VALUES (%s, %s, %s)",
+                        row
+                    )
+        conn.commit()
+        print(f"Записи добавлены в таблицу {table}.")
+
+read_csv_and_put_bd('telegram')
