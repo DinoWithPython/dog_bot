@@ -174,5 +174,3 @@ def read_csv_and_put_bd(table: str):
                     )
         conn.commit()
         print(f"Записи добавлены в таблицу {table}.")
-
-read_csv_and_put_bd('telegram')
